@@ -1,0 +1,5 @@
+# Benchmarked on PyTorch 2.8 + CUDA 12.8, NVIDIA L40 (Ada, sm_89).
+# triton ships bundled with recent torch (pytorch-triton); listed explicitly
+# for anyone installing the kernels without a matching torch build.
+torch>=2.4
+triton>=3.0

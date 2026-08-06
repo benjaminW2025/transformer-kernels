@@ -80,7 +80,7 @@ Need to clean results
 
 ### Minor notes
 
-- On tiled matrix multiplication, cuBLAS implementation ops for an sub optimal tiling config leading to poor performance and more HBM accesses compared to my autotuned config; our kernel achieves ~71% of the theoretical max
+- On tiled matrix multiplication, cuBLAS implementation ops for an sub optimal tiling config leading to poor performance and more HBM accesses compared to my autotuned config; our kernel achieves ~80% of the theoretical max
 - The L40's L2 cache is large enough to fit the entire $4096^2$ matrix at fp16 precision, which is one reason I suspect the empirical FLOPS/byte is ~3 times higher than the theoretical maximum computed with using just DRAM access speed (i.e., the matrix gets loaded into L2 cache and saves time on what otherwise would be HBM access)
 - I wrote the RoPE kernel to handle inputs with tensor dimensions of (batch, num_heads, seq_len, d_heads) to be consistent with how RoPE is applied within attention computation
 - The base softmax kernel follows the Triton documentation but ```fused_causal_softmax.py``` natively handles (batch, num_heads, seq_len, d_heads) for attention computation and causal masking

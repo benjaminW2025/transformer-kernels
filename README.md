@@ -20,7 +20,7 @@ pip install -r requirements.txt
 We implement kernels for the following operations:
 
 ```
-transformer-kernels/
+kernels/
 ├── tiled_matmul.py          # Tiled matrix multiplication (autotuned, GROUP_M swizzle)
 ├── fused_rms.py             # Fused RMSNorm
 ├── rope.py                  # RoPE (rotary position embeddings)
@@ -48,6 +48,25 @@ RMSNorm computes $\mathrm{RMSNorm}(x) = \frac{x}{\mathrm{RMS}(x)} \cdot \gamma$ 
 
 **Fused Causal Softmax:**
 
+Fusing the softmax operation leads to an approximately $4\times$ speedup over the naive implementation. For an input $x\in\mathbb{R}^{MN}$, the naive implementation 1) Computes the max element by reading the $MN$ elements and writing $M$ elements 2) Subtracts the max element from each row by reading $MN + M$ elements and writing $MN$ elements 3) Exponentiating each element by reading $MN$ elements and writing $MN$ elements 4) Computing the denominator by reading $MN$ elements and writing $M$ elements 5) Dividing by reading $MN + M$ elements and writing $MN$ elements. This totals to $8MN + 4M$ elements. Our fused kernel reads in the $MN$ elements once, and writes them out once, for an $\sim 4\times$ speedup which is reflected in our benchmarking.
+
+Sweep `seq_len` (batch = 4, n_heads = 16)
+| Seq Length | Triton (ms) |   GB/s | Naive (ms) | Speedup | Max Error |
+| ---------: | ----------: | -----: | ---------: | ------: | --------: |
+|        128 |      0.0101 | 310.95 |     0.0272 |   2.68× |  0.000061 |
+|        256 |      0.0285 | 442.38 |     0.0565 |   1.99× |  0.000122 |
+|        512 |      0.0986 | 510.73 |     0.1744 |   1.77× |  0.000061 |
+|       1024 |      0.3467 | 580.84 |     1.2390 |   3.57× |  0.000031 |
+|       2048 |      1.2663 | 636.07 |     4.9319 |   3.89× |  0.000031 |
+
+Sweep `n_heads` (batch = 4, seq_len = 1024)
+| Number of Heads | Triton (ms) |   GB/s | Naive (ms) | Speedup | Max Error |
+| --------------: | ----------: | -----: | ---------: | ------: | --------: |
+|               4 |      0.1032 | 487.80 |     0.1790 |   1.73× |  0.000061 |
+|               8 |      0.1806 | 557.54 |     0.4346 |   2.41× |  0.000031 |
+|              16 |      0.3477 | 579.18 |     1.2372 |   3.56× |  0.000061 |
+|              32 |      0.6696 | 601.51 |     2.4506 |   3.66× |  0.000061 |
+|              64 |      1.3426 | 600.02 |     4.8928 |   3.64× |  0.000122 |
 
 **RoPE:**
 

@@ -50,7 +50,7 @@ RMSNorm computes $\mathrm{RMSNorm}(x) = \frac{x}{\mathrm{RMS}(x)} \cdot \gamma$ 
 
 **Fused Causal Softmax:**
 
-Fusing the softmax operation leads to an approximately $4\times$ speedup over the naive implementation. For an input $x\in\mathbb{R}^{MN}$, the naive implementation 1) Computes the max element by reading the $MN$ elements and writing $M$ elements 2) Subtracts the max element from each row by reading $MN + M$ elements and writing $MN$ elements 3) Exponentiating each element by reading $MN$ elements and writing $MN$ elements 4) Computing the denominator by reading $MN$ elements and writing $M$ elements 5) Dividing by reading $MN + M$ elements and writing $MN$ elements. This totals to $8MN + 4M$ elements. Our fused kernel reads in the $MN$ elements once, and writes them out once, for an $\sim 4\times$ speedup which is reflected in our benchmarking.
+Fusing the softmax operation leads to an approximately $4\times$ speedup over the naive implementation. For an input $x\in\mathbb{R}^{MN}$, the naive implementation 1) Computes the max element by reading the $MN$ elements and writing $M$ elements 2) Subtracts the max element from each row by reading $MN + M$ elements and writing $MN$ elements 3) Exponentiating each element by reading $MN$ elements and writing $MN$ elements 4) Computing the denominator by reading $MN$ elements and writing $M$ elements 5) Dividing by reading $MN + M$ elements and writing $MN$ elements. This totals to $8MN + 4M$ elements. Our fused kernel reads in the $MN$ elements once, and writes them out once, for an ~4x speedup which is reflected in our benchmarking.
 
 Sweep `seq_len` (batch = 4, n_heads = 16)
 | Seq Length | Triton (ms) |   GB/s | Naive (ms) | Speedup | Max Error |
@@ -74,15 +74,17 @@ Sweep `n_heads` (batch = 4, seq_len = 1024)
 
 **RoPE:**
 
-Similar to the last two kernels, we fuse the RoPE DRAM accesses to achieve singificant speedup. 
+Similar to the last two kernels, we fuse the RoPE DRAM accesses to achieve significant speedup. Following a similar computation to before, we trace the naive implementation on the input to a single attention head, i.e. $x \in \mathbb{R}^{M \times N}$ where $M$ is `seq_len` and $N$ is `head_dim`. `.float()` and the closing `.to()` contribute $12MN$ (read fp16 / write fp32, and the reverse). The rotation `x_even * cos - x_odd * sin` is three separate kernels for $14MN$, and the odd half costs the same giving $28MN$. Finally `stack` reads and writes the whole tensor once more at fp32 for $8MN$. The $\cos/\sin$ tables are only $(M, N/2)$ and are shared across all $BH$ heads, so they amortize away. In total the naive implementation moves roughly $48MN$ bytes per head, against our fused kernel's $2MN$ read and $2MN$ write, for a theoretical ~12x speedup.
 
-| Shape (B, H, S, D) | Triton (ms) |   GB/s | Naive (ms) | Speedup | Max Error |
-| ------------------ | ----------: | -----: | ---------: | ------: | --------: |
-| (4, 32, 512, 128)  |      0.0672 | 498.76 |     0.3068 |   4.57× |    0.0020 |
-| (4, 32, 1024, 128) |      0.1232 | 531.41 |     1.3334 |  10.82× |    0.0020 |
-| (4, 32, 2048, 128) |      0.2314 | 595.55 |     3.5914 |  15.52× |    0.0039 |
-| (4, 32, 4096, 128) |      0.4466 | 603.19 |     7.1531 |  16.02× |    0.0039 |
-| (2, 32, 8192, 128) |      0.4304 | 614.56 |     7.1562 |  16.63× |    0.0039 |
+Empirically the speedup ramps from 4.6x to ~16x as sequence length grows. At short sequences the naive temporaries still fit in the L40S's 96MB L2 and kernel launch overhead dominates, so the wallclock time doesn't reflect DRAM access; at long sequences it does. We actually exceed the 12x predicted speedup, something that my Claude attributes to some overhead induced by the tensor splicing when computing the even and odd sin/cosine tensors. We benchmark also against a compiled version of the naive implementation and see that our fused kernel matches performance.
+
+| Shape (B, H, S, D) | Triton (ms) | Naive (ms) | Compiled (ms) | vs Naive | vs Compiled | Max Error |
+| ------------------ | ----------: | ---------: | ------------: | -------: | ----------: | --------: |
+| (4, 32, 512, 128)  |      0.0670 |     0.3069 |        0.0300 |    4.58× |       0.45× |    0.0020 |
+| (4, 32, 1024, 128) |      0.1229 |     1.3307 |        0.1068 |   10.83× |       0.87× |    0.0020 |
+| (4, 32, 2048, 128) |      0.2317 |     3.5897 |        0.2078 |   15.49× |       0.90× |    0.0039 |
+| (4, 32, 4096, 128) |      0.3998 |     7.0892 |        0.4097 |   17.73× |       1.02× |    0.0039 |
+| (2, 32, 8192, 128) |      0.4299 |     7.1572 |        0.4103 |   16.65× |       0.95× |    0.0039 |
 
 **Tiled Matrix Multiplication:**
 

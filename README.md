@@ -88,20 +88,27 @@ Empirically the speedup ramps from 4.6x to ~16x as sequence length grows. At sho
 
 **Tiled Matrix Multiplication:**
 
-Need to clean results
+Our tiled matrix multiplication kernel yields by far the most interesting results. Our benchmarking code supports sweeps of multiple fators, such as `N` and `group_M`.
 
+| N (N×N×N) | cuBLAS ms | cuBLAS TFLOP/s | cuBLAS % peak | Triton ms | Triton TFLOP/s | Triton % peak | Triton / cuBLAS |
+|----------:|----------:|---------------:|--------------:|----------:|---------------:|--------------:|----------------:|
+| 4096      |     0.855 |          160.8 |           89% |     1.036 |          132.6 |           73% |           0.82× |
+| 8192      |     9.103 |          120.8 |           67% |     7.751 |          141.9 |           78% |           1.17× |
+| 16384     |    92.491 |           95.1 |           53% |    61.162 |          143.8 |           79% |           1.51× |
+
+It should first be noted that our kernel is **not more performant than cuBLAS**, but rather that cuBLAS encounters a unique failure mode. On `N=4096` we see that our Triton kernel is ~82.5% of cuBLAS throughput, an expected result for an autotuned Triton config. cuBLAS throughput **degrades monotonically** with N (89% → 67% → 53% of peak), but does **not** mean that our Triton implementation is *more efficient* In fact, GPU telemetry during the benchmark shows the card **pinned at its ~300 W power cap with SM clocks throttled from ~2490 → ~1350 MHz**, so the degradation could be explained by power-cap throttling. 
 
 
 ### Minor notes
 
-- On tiled matrix multiplication, cuBLAS implementation ops for an sub optimal tiling config leading to poor performance and more HBM accesses compared to my autotuned config; our kernel achieves ~80% of the theoretical max
+- On tiled matrix multiplication, cuBLAS peformance degrades monotonically as N increases, a strange issue that seems to have to do with our GPU config; despite the inconsistency in our cuBLAS baseline, our kernel achieves ~80% of the theoretical max which is reasonably good performance for a Triton kernel
 - The L40's L2 cache is large enough to fit the entire $4096^2$ matrix at fp16 precision, which is one reason I suspect the empirical FLOPS/byte is ~3 times higher than the theoretical maximum computed with using just DRAM access speed (i.e., the matrix gets loaded into L2 cache and saves time on what otherwise would be HBM access)
 - I wrote the RoPE kernel to handle inputs with tensor dimensions of (batch, num_heads, seq_len, d_heads) to be consistent with how RoPE is applied within attention computation
 - The base softmax kernel follows the Triton documentation but ```fused_causal_softmax.py``` natively handles (batch, num_heads, seq_len, d_heads) for attention computation and causal masking
 
 ### TODO
 - [X] Standard transformer kernels
-- [ ] Write up prelim benchmarking results to README
+- [X] Write up prelim benchmarking results to README
 - [ ] Generalize matrix multiplication beyond 2D tensors
 - [ ] Optimize fused causal softmax for longer sequences
 - [ ] Online softmax + FlashAttention forward pass

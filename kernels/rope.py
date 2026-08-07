@@ -12,6 +12,7 @@ import triton
 import triton.language as tl
 
 DEVICE = triton.runtime.driver.active.get_active_torch_device()
+LOG_10000 = math.log(10000)
 
 @triton.jit
 def rope_kernel(x_ptr,   # (batch, n_heads, seq_len, head_dim)
@@ -22,7 +23,8 @@ def rope_kernel(x_ptr,   # (batch, n_heads, seq_len, head_dim)
                 out_row_stride,
                 out_head_stride,
                 out_batch_stride,
-                half,     # head_dim // 2 (runtime scalar)
+                log_10000,
+                half: tl.constexpr,     # head_dim // 2 (compile-time constant)
                 BLOCK_SIZE: tl.constexpr):
 
     # One program per (batch, head, token position). This program computes the
@@ -46,7 +48,8 @@ def rope_kernel(x_ptr,   # (batch, n_heads, seq_len, head_dim)
 
     # Compute cos/sin for this position (seq) across the head_dim pairs.
     # theta_i = seq * base^(-2i/d) = seq * exp( -(i/half) * ln(base) )
-    inv_freq = tl.exp(h.to(tl.float32) * (-math.log(10000.0) / half))
+    scale = -log_10000 / half
+    inv_freq = tl.exp(h.to(tl.float32) * scale)
     theta = seq.to(tl.float32) * inv_freq
     cos_t = tl.cos(theta)
     sin_t = tl.sin(theta)
@@ -87,7 +90,8 @@ def rope(x):
         x, out,
         x.stride(2), x.stride(1), x.stride(0),           # seq / head / batch strides
         out.stride(2), out.stride(1), out.stride(0),
-        half,
+        LOG_10000,
+        half=half,
         BLOCK_SIZE=BLOCK_SIZE,
         num_warps=num_warps,
     )

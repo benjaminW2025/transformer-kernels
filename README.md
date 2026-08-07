@@ -46,6 +46,8 @@ RMSNorm computes $\mathrm{RMSNorm}(x) = \frac{x}{\mathrm{RMS}(x)} \cdot \gamma$ 
 |  8192 |      0.4150 |        0.4077 |     4.0614 |       0.98× |    9.79× |    0.0039 |
 | 16384 |      0.8232 |        0.8229 |     8.1401 |       1.00× |    9.89× |    0.0078 |
 
+
+
 **Fused Causal Softmax:**
 
 Fusing the softmax operation leads to an approximately $4\times$ speedup over the naive implementation. For an input $x\in\mathbb{R}^{MN}$, the naive implementation 1) Computes the max element by reading the $MN$ elements and writing $M$ elements 2) Subtracts the max element from each row by reading $MN + M$ elements and writing $MN$ elements 3) Exponentiating each element by reading $MN$ elements and writing $MN$ elements 4) Computing the denominator by reading $MN$ elements and writing $M$ elements 5) Dividing by reading $MN + M$ elements and writing $MN$ elements. This totals to $8MN + 4M$ elements. Our fused kernel reads in the $MN$ elements once, and writes them out once, for an $\sim 4\times$ speedup which is reflected in our benchmarking.
@@ -68,9 +70,19 @@ Sweep `n_heads` (batch = 4, seq_len = 1024)
 |              32 |      0.6696 | 601.51 |     2.4506 |   3.66× |  0.000061 |
 |              64 |      1.3426 | 600.02 |     4.8928 |   3.64× |  0.000122 |
 
+
+
 **RoPE:**
 
-Need to clean results
+Similar to the last two kernels, we fuse the RoPE DRAM accesses to achieve singificant speedup. 
+
+| Shape (B, H, S, D) | Triton (ms) |   GB/s | Naive (ms) | Speedup | Max Error |
+| ------------------ | ----------: | -----: | ---------: | ------: | --------: |
+| (4, 32, 512, 128)  |      0.0672 | 498.76 |     0.3068 |   4.57× |    0.0020 |
+| (4, 32, 1024, 128) |      0.1232 | 531.41 |     1.3334 |  10.82× |    0.0020 |
+| (4, 32, 2048, 128) |      0.2314 | 595.55 |     3.5914 |  15.52× |    0.0039 |
+| (4, 32, 4096, 128) |      0.4466 | 603.19 |     7.1531 |  16.02× |    0.0039 |
+| (2, 32, 8192, 128) |      0.4304 | 614.56 |     7.1562 |  16.63× |    0.0039 |
 
 **Tiled Matrix Multiplication:**
 

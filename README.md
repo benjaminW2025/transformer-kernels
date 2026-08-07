@@ -99,6 +99,11 @@ Our tiled matrix multiplication kernel yields by far the most interesting result
 It should first be noted that our kernel is **not more performant than cuBLAS**, but rather that cuBLAS encounters a unique failure mode. On `N=4096` we see that our Triton kernel is ~82.5% of cuBLAS throughput, an expected result for an autotuned Triton config. cuBLAS throughput **degrades monotonically** with N (89% → 67% → 53% of peak), but does **not** mean that our Triton implementation is *more efficient*. In fact, GPU telemetry during the benchmark shows the card **pinned at its ~300 W power cap with SM clocks throttled from ~2490 → ~1350 MHz**, so the degradation could be explained by power-cap throttling. 
 
 
+### Notes on FlashAttention
+
+
+
+
 ### Minor notes
 
 - On tiled matrix multiplication, cuBLAS peformance degrades monotonically as N increases, a strange issue that seems to have to do with our GPU config; despite the inconsistency in our cuBLAS baseline, our kernel achieves ~80% of the theoretical max which is reasonably good performance for a Triton kernel

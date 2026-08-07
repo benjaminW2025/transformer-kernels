@@ -96,11 +96,29 @@ Our tiled matrix multiplication kernel yields by far the most interesting result
 | 8192      |     9.103 |          120.8 |           67% |     7.751 |          141.9 |           78% |           1.17× |
 | 16384     |    92.491 |           95.1 |           53% |    61.162 |          143.8 |           79% |           1.51× |
 
-It should first be noted that our kernel is **not more performant than cuBLAS**, but rather that cuBLAS encounters a unique failure mode. On `N=4096` we see that our Triton kernel is ~82.5% of cuBLAS throughput, an expected result for an autotuned Triton config. cuBLAS throughput **degrades monotonically** with N (89% → 67% → 53% of peak), but does **not** mean that our Triton implementation is *more efficient*. In fact, GPU telemetry during the benchmark shows the card **pinned at its ~300 W power cap with SM clocks throttled from ~2490 → ~1350 MHz**, so the degradation could be explained by power-cap throttling. 
+It should first be noted that our kernel is **not more performant than cuBLAS**, but rather that cuBLAS encounters a unique failure mode. On `N=4096` we see that our Triton kernel is ~82.5% of cuBLAS throughput, an expected result for an autotuned Triton config. cuBLAS throughput **degrades monotonically** with N (89% → 67% → 53% of peak), but does **not** mean that our Triton implementation is more efficient. In fact, GPU telemetry during the benchmark shows the card **pinned at its ~300 W power cap with SM clocks throttled from ~2490 → ~1350 MHz**, so the degradation could be explained by power-cap throttling (GPU reduces clockspeed due to hitting power threshold). 
 
+### 1.5B Op Equivalent
 
-### Notes on FlashAttention
+To have a general idea of the improvements our Triton kernel yields in practice, we run our fused RMSNorm kernel the same number of times that the Qwen3.5-1.5B architecture does. There are 28 distinct transformer layers, each apply RMSNorm twice, and the final linear projection applies it once for a total of 57 RMSNorms. We run these normalization layers in two ways: once iterating over the same tensor 57 times (labeled HOT), and another running RMSNorm on 57 distinct tensors (labeled COLD). 
 
+**HOT**
+|    N | Triton (ms) | Compiled (ms) | Naive (ms) | vs Naive | vs Compiled |
+| ---: | ----------: | ------------: | ---------: | -------: | ----------: |
+| 2048 |      1.3698 |        2.4747 |     3.1121 |    2.27× |       1.81× |
+| 4096 |      1.3089 |        2.4035 |     7.1739 |    5.48× |       1.84× |
+| 8192 |      1.3026 |        2.3621 |    16.3258 |   12.53× |       1.81× |
+
+**COLD**
+|    N | Triton (ms) | Compiled (ms) | Naive (ms) | vs Naive | vs Compiled |
+| ---: | ----------: | ------------: | ---------: | -------: | ----------: |
+| 2048 |      1.3297 |        2.3607 |     3.2211 |    2.42× |       1.78× |
+| 4096 |      2.1479 |        2.2983 |     7.2261 |    3.36× |       1.07× |
+| 8192 |      4.3459 |        4.3710 |    17.9945 |    4.14× |       1.01× |
+
+Interestingly, we see that the HOT runs are flat across the N sweep, indicating that those runs are launch overhead bound rather than computation runtime bound. This occurs because the kernels are not HBM bound during the hot run, since tensors are stored in the L2 cache, meaning that kernel launch and execution can overlap. This also explains why the Triton kernel still wins versus the PyTorch .compiled implementation, since PyTorch incurrs additional overhead via the many layers of Python abstractions that must be compiled. The COLD run more accurately reflects our improvements of kernel runtime, where we are competitive with the .compiled implementation, and beat the naive implementation by up to 4x.
+
+### Online Softmax Recurrence
 
 
 
@@ -118,5 +136,5 @@ It should first be noted that our kernel is **not more performant than cuBLAS**,
 - [ ] Optimize fused causal softmax for longer sequences
 - [ ] Online softmax + FlashAttention forward pass
 - [ ] Online softmax recurrence proof for write up
-- [ ] Profile naive vs fused operations overhead
+- [X] Profile naive vs fused operations overhead
 - [ ] Comprehensive write up

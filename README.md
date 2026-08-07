@@ -2,7 +2,7 @@
 
 (Comprehensive write up is TBD, results still need to be cleaned up + written to this README)
 
-This repo contains my implementation of kernels for several key transformer components in Triton, along with some learning notes from the past three weeks. All kernels were hand implemented to build fluency in memory indexing, memory guards, and the Triton stack. Tests are benchmarked on the NVIDIA L40 Lovelace architecture with more details provided below. While kernels are all hand implemented, the benchmarking was written with AI assistance.
+This repo contains my implementation of kernels for several key transformer components in Triton, along with some learning notes from the past three weeks. All kernels were hand implemented to build fluency in memory indexing, memory guards, and the Triton stack. Tests are benchmarked on the NVIDIA L40 Lovelace architecture with more details provided below. While kernels are all hand implemented, the benchmarking was written with AI assistance. Other learning notes including some comments/proofs on FlashAttention theory and small tests are also included.
 
 ## Set up
 
@@ -120,7 +120,15 @@ Interestingly, we see that the HOT runs are flat across the N sweep, indicating 
 
 ### Online Softmax Recurrence
 
+We prove via induction that the online softmax algorithm computes the same softmax output as a two pass softmax. In particular, for a vector $x\in\mathbb{R}^N$, we show that the online softmax computes $\frac{e^{x - x_{\text{max}}}}{\sum_{i}e^{x_i - x_{\text{max}}}}.$ Suppose that $x$ is partitioned into $n$ blocks, namely $x = [x_1\mid\dots\mid x_n]$. Assume that $m_{\text{temp}}$ is the maximal element of the first $k$ blocks, and that $s_{\text{temp}}$ is the running sum $\sum_j e^{x_j - m_\text{temp}}$ for all $j$ in the first $k$ blocks. We show that for the first $k+1$ blocks that $m_\text{new}=\max(x_\text{temp}, m_\text{k+1})$ is the new running maximum element (where $m_\text{k+1}$ is the max element of block $k+1$), and that the running sum of the first $k+1$ blocks is: 
+$$s_{new} = e^{(m_\text{new} - m_\text{temp})}s_\text{temp} + e^{(m_\text{new} - m_{k+1})}s_{k+1}$$
+where $s_{k+1} = \sum_{j\in k}e^{j-m_{k+1}}.$
 
+This is proven simply via induction:
+- If $k=1$ then clearly $m_\text{temp}$ is the largest of the first block, and hence the maximal element thus far, and similarly $s_1$ is exactly the running sum $\sum_{j}e^{x_j - m_\text{temp}}$
+- Otherwise: assume the stated assumptions. Then clearly $\max(x_\text{temp}, m_\text{k+1}) \le m_\text{new}$ and $m_\text{new} \ge \max(x_\text{temp}, m_\text{k+1})$, implying that $m_\text{new} = \max(x_\text{temp}, m_\text{k+1})$. Now, when updating $s$, consider the update on the first $k$ blocks. We are essentially adding to the exponent of $e^{m_\text{temp}}$ by $(m_\text{new} - m_\text{temp})$, yielding a new exponent of $e^{m_\text{new}}$. Similarly, the update on the $k+1$ th block computes a new exponent by adding $(m_\text{new} - m_{k+1})$ to the exponent of $e^{m_{k+1}}$, also yielding $e^{m_\text{new}}$. Thus, the final sum is simply $\sum_i e^{m_\text{new}}$ for all $i$ in the first $k+1$ blocks, as desired.
+
+Computed over all $n$ blocks, this computes the denominator needed for the online softmax algorithm. If we apply an identical updating step to the numerator vector as we do to the denominator, the same exponent update applies and computes the nuemerator. However, the FlashAttention implementation entirely sidesteps the numerator computation by directly computing the attention output. Then, the same factoring trick we used on the denominator applies directly to the value vector aggregation (you update the exponent on the $e$ by scaling the sum by the update exponent).
 
 ### Minor notes
 
